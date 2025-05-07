@@ -20,6 +20,7 @@ public class ReservationEntity {
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
     private User user;  
+    private String Nomclient;
 
     @ManyToOne
     @JoinColumn(name = "service_id", nullable = false)
@@ -72,6 +73,7 @@ public class ReservationEntity {
         if (this.user != null) {
             this.email = this.user.getEmail();
             this.phone = this.user.getPhone();
+            this.Nomclient = this.user.getUsernameFieldDirectly();
         }
     }
 

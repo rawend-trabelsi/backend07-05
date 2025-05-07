@@ -311,84 +311,6 @@ public class ReservationService {
         reservationRepository.save(reservation);
     }
 
-    @Transactional
-    public void marquerReservationTerminee(Long reservationId, Authentication authentication) {
-        try {
-            ReservationEntity reservation = reservationRepository.findById(reservationId)
-                .orElseThrow(() -> {
-                    log.error("Réservation non trouvée ID: {}", reservationId);
-                    return new ResponseStatusException(HttpStatus.NOT_FOUND, "Réservation non trouvée");
-                });
-
-            // Vérification du technicien
-            String emailTechnicien = authentication.getName();
-            TechnicienEmploi technicien = technicienEmploiRepository.findByUserEmail(emailTechnicien)
-                .orElseThrow(() -> {
-                    log.error("Technicien non trouvé: {}", emailTechnicien);
-                    return new ResponseStatusException(HttpStatus.FORBIDDEN, "Accès refusé");
-                });
-
-            // Vérification que c'est bien le technicien affecté
-            if (!technicien.getId().equals(reservation.getTechnicienId())) {
-                log.warn("Tentative non autorisée - Technicien {} essaye de terminer réservation {}",
-                    technicien.getId(), reservationId);
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Action interdite");
-            }
-            if (reservation.getDateReservation().toLocalDate().isAfter(LocalDate.now())) {
-                log.warn("La réservation {} ne peut pas être terminée avant le jour prévu", reservationId);
-                throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST, 
-                    "La réservation ne peut pas être terminée avant sa date prévue"
-                );
-            }
-
-
-            // Vérification que la réservation est bien en cours
-            if (reservation.getStatus() != ReservationStatus.EN_COURS) {
-                log.warn("Statut incorrect pour réservation {}: {}", reservationId, reservation.getStatus());
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, 
-                    "La réservation doit être en cours pour être terminée");
-            }
-
-            // Mise à jour de la réservation
-            reservation.setStatus(ReservationStatus.TERMINEE);
-            reservation.setDateFinReelle(LocalDateTime.now());
-            reservationRepository.save(reservation);
-
-            // Notification aux admins
-            String message = String.format(
-                "Réservation: %d terminée\n du Service: %s\n Client: %s\n Technicien: %s\n Terminée le: %s",
-                reservation.getId(),
-                reservation.getTitreService(),
-                reservation.getUser().getUsername(),
-                technicien.getUser().getUsername(),
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
-            );
-            // Notification à l'utilisateur
-            String userMessage = String.format(
-                "Votre réservation a été terminée\n" +
-                "de Service: %s\n" +
-                "Merci pour votre confiance !",
-              
-                reservation.getTitreService(),
-                technicien.getUser().getUsername(),
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
-            );
-            
-            notificationService.sendNotificationToUser(
-                reservation.getUser().getEmail(), 
-                userMessage
-            );
-
-            notificationService.sendNotificationToAdmins(message);
-
-            log.info("Réservation {} terminée avec succès par {}", reservationId, emailTechnicien);
-
-        } catch (Exception e) {
-            log.error("Erreur lors de la finalisation: {}", e.getMessage());
-            throw e;
-        }
-    }
     public void affecterTechnicienAReservation(Long reservationId, Long technicienId) {
         ReservationEntity reservation = reservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Réservation introuvable"));
@@ -660,7 +582,7 @@ public class ReservationService {
                 String clientMessage = String.format(
                         "Votre réservation a été annulée avec succès\n" +
                         "de Service: %s\n" +
-                        "et date prévue: %s",
+                        "et de date prévue: %s",
                        
                         reservation.getTitreService(),
                         
@@ -888,6 +810,83 @@ public class ReservationService {
         return reservationRepository.findById(id)
                 .orElseThrow();
     }
+    @Transactional
+    public void marquerReservationTerminee(Long reservationId, Authentication authentication) {
+        try {
+            ReservationEntity reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> {
+                    log.error("Réservation non trouvée ID: {}", reservationId);
+                    return new ResponseStatusException(HttpStatus.NOT_FOUND, "Réservation non trouvée");
+                });
 
+            // Vérification du technicien
+            String emailTechnicien = authentication.getName();
+            TechnicienEmploi technicien = technicienEmploiRepository.findByUserEmail(emailTechnicien)
+                .orElseThrow(() -> {
+                    log.error("Technicien non trouvé: {}", emailTechnicien);
+                    return new ResponseStatusException(HttpStatus.FORBIDDEN, "Accès refusé");
+                });
+
+            // Vérification que c'est bien le technicien affecté
+            if (!technicien.getId().equals(reservation.getTechnicienId())) {
+                log.warn("Tentative non autorisée - Technicien {} essaye de terminer réservation {}",
+                    technicien.getId(), reservationId);
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Action interdite");
+            }
+            if (reservation.getDateReservation().toLocalDate().isAfter(LocalDate.now())) {
+                log.warn("La réservation {} ne peut pas être terminée avant le jour prévu", reservationId);
+                throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, 
+                    "La réservation ne peut pas être terminée avant sa date prévue"
+                );
+            }
+
+
+            // Vérification que la réservation est bien en cours
+            if (reservation.getStatus() != ReservationStatus.EN_COURS) {
+                log.warn("Statut incorrect pour réservation {}: {}", reservationId, reservation.getStatus());
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, 
+                    "La réservation doit être en cours pour être terminée");
+            }
+
+            // Mise à jour de la réservation
+            reservation.setStatus(ReservationStatus.TERMINEE);
+            reservation.setDateFinReelle(LocalDateTime.now());
+            reservationRepository.save(reservation);
+
+            // Notification aux admins
+            String message = String.format(
+                "Réservation: %d terminée\n du Service: %s\n Client: %s\n Technicien: %s\n Terminée le: %s",
+                reservation.getId(),
+                reservation.getTitreService(),
+                reservation.getUser().getUsernameFieldDirectly(),
+                technicien.getUser().getUsername(),
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+            );
+         // Notification à l'utilisateur
+            String userMessage = String.format(
+                "Votre réservation a été terminée\n" +
+                "De Service: %s\n" +
+                "Prévu le: %s\n" +
+                "Merci pour votre confiance !",
+                reservation.getTitreService(),
+                reservation.getDateReservation().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"))
+            );
+
+            
+            notificationService.sendNotificationToUser(
+                reservation.getUser().getEmail(), 
+                userMessage
+            );
+
+            notificationService.sendNotificationToAdmins(message);
+
+            log.info("Réservation {} terminée avec succès par {}", reservationId, emailTechnicien);
+
+        } catch (Exception e) {
+            log.error("Erreur lors de la finalisation: {}", e.getMessage());
+            throw e;
+        }
+    }
 }
 

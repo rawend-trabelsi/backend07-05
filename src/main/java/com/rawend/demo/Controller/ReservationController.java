@@ -4,11 +4,15 @@ import com.rawend.demo.Repository.ReservationRepository;
 import com.rawend.demo.Repository.TechnicienEmploiRepository;
 import com.rawend.demo.dto.ReservationUpdateRequest;
 import com.rawend.demo.Repository.AffectationTechnicienRepository;
+import com.rawend.demo.Repository.PaymentRepository;
 import com.rawend.demo.dto.ReservationRequest;
 
 import com.rawend.demo.entity.AffectationTechnicien;
 import com.rawend.demo.entity.JourRepos;
+import com.rawend.demo.entity.ModePaiement;
 import com.rawend.demo.entity.Notification;
+import com.rawend.demo.entity.PaymentEntity;
+import com.rawend.demo.entity.PaymentStatus;
 import com.rawend.demo.entity.ReservationEntity;
 import com.rawend.demo.entity.ReservationStatus;
 import com.rawend.demo.entity.TechnicienEmploi;
@@ -42,6 +46,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -75,6 +80,9 @@ public class ReservationController {
     }
     @PersistenceContext
     private EntityManager entityManager;
+    @Autowired
+    private PaymentRepository paymentRepository;
+
 
     @PreAuthorize("hasRole('TECHNICIEN')")
     @PutMapping("/{reservationId}/terminer")
@@ -344,7 +352,7 @@ public class ReservationController {
         if (oldTechnicienOpt.isPresent()) {
             String oldTechnicienEmail = oldTechnicienOpt.get().getEmail();
             String oldTechNotificationMessage = "Votre affectation à la réservation " +
-                    " prévue du " + dateDebut + " au " + dateFin + " est  annulée.";
+                    " prévue du " + dateDebut + " au " + dateFin + " est annulée.";
 
             Notification oldTechNotification = notificationService.createNotification(oldTechnicienEmail, oldTechNotificationMessage);
             messagingTemplate.convertAndSend("/topic/notifications/" + oldTechnicienEmail, oldTechNotification);
@@ -401,7 +409,7 @@ public class ReservationController {
         // Message de notification avec date de début et de fin
         String notificationMessage = "Vous avez été affecté à la réservation "  +
                 "planifiée de " + reservation.getDateReservation().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")) +
-                " à" + dateFin + ".";
+                " à " + dateFin + ".";
 
 
         // Enregistrement de la notification en base de données
@@ -441,89 +449,8 @@ public class ReservationController {
     }
 
 
-    @GetMapping()
-    public List<Map<String, Object>> getAllReservations() {
-        List<ReservationEntity> reservations = reservationService.getAllReservations();
-        List<Map<String, Object>> reservationsList = new ArrayList<>();
-        reservations.sort((r1, r2) -> Long.compare(r2.getId(), r1.getId()));
 
-        DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME; // Format ISO 8601
-
-        for (ReservationEntity reservation : reservations) {
-            Map<String, Object> reservationDetails = new HashMap<>();
-
-          
-            reservationDetails.put("dateReservation", reservation.getDateReservation().format(formatter));
-            reservationDetails.put("dateCreation", reservation.getDateCreation().format(formatter));
-
-            reservationDetails.put("id", reservation.getId());
-            reservationDetails.put("titreService", reservation.getTitreService());
-            reservationDetails.put("prix", reservation.getPrix());
-            reservationDetails.put("localisation", reservation.getLocalisation());
-            reservationDetails.put("latitude", reservation.getLatitude());
-            reservationDetails.put("longitude", reservation.getLongitude());
-            reservationDetails.put("email", reservation.getEmail());
-            reservationDetails.put("phone", reservation.getPhone());
-            reservationDetails.put("duree", reservation.getDuree());
-            reservationDetails.put("modePaiement", reservation.getModePaiement().name());
-            reservationDetails.put("status", reservation.getStatus().name());
-
-            Long technicienId = reservation.getTechnicienId();
-            if (technicienId != null) {
-                technicienEmploiRepository.findById(technicienId).ifPresent(technicien -> {
-                    if (technicien.getUsername() != null) {
-                        reservationDetails.put("usernameTechnicien", technicien.getUsername());
-                    }
-                    if (technicien.getEmail() != null) {
-                        reservationDetails.put("emailTechnicien", technicien.getEmail());
-                    }
-                });
-            }
-
-            reservationsList.add(reservationDetails);
-        }
-
-        return reservationsList;
-    }
-    @GetMapping("/technicien/{emailTechnicien}")
-    public List<Map<String, Object>> getReservationsByTechnicien(@PathVariable String emailTechnicien) {
-        Optional<TechnicienEmploi> technicienOpt = technicienEmploiRepository.findByEmail(emailTechnicien);
-
-        if (technicienOpt.isEmpty()) {
-            return Collections.emptyList(); 
-        }
-
-        TechnicienEmploi technicien = technicienOpt.get();
-        List<ReservationEntity> reservations = reservationRepository.findByTechnicienId(technicien.getId());
-
-        // Trier les réservations par id dans l'ordre décroissant
-        reservations.sort((r1, r2) -> Long.compare(r2.getId(), r1.getId()));
-
-        List<Map<String, Object>> reservationsList = new ArrayList<>();
-
-        for (ReservationEntity reservation : reservations) {
-            Map<String, Object> reservationDetails = new HashMap<>();
-
-            reservationDetails.put("id", reservation.getId());
-            reservationDetails.put("titreService", reservation.getTitreService());
-            reservationDetails.put("prix", reservation.getPrix());
-            reservationDetails.put("localisation", reservation.getLocalisation());
-            reservationDetails.put("latitude", reservation.getLatitude());
-            reservationDetails.put("longitude", reservation.getLongitude());
-            reservationDetails.put("dateReservation", reservation.getDateReservation());
-            reservationDetails.put("dateCreation", reservation.getDateCreation());
-            reservationDetails.put("email", reservation.getEmail());
-            reservationDetails.put("phone", reservation.getPhone());
-            reservationDetails.put("duree", reservation.getDuree());
-            reservationDetails.put("modePaiement", reservation.getModePaiement());
-            reservationDetails.put("status", reservation.getStatus());
-            
-
-            reservationsList.add(reservationDetails);
-        }
-
-        return reservationsList;
-    }
+  
     @GetMapping("/count")
     public ResponseEntity<Map<String, Long>> countReservations() {
         long count = reservationRepository.count(); 
@@ -644,7 +571,7 @@ public class ReservationController {
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm");
 
         List<Map<String, Object>> response = reservations.stream()
-            .filter(reservation -> reservation.getStatus() != ReservationStatus.TERMINEE) // ❌ Exclure les terminées
+            .filter(reservation -> reservation.getStatus() != ReservationStatus.TERMINEE)
             .map(reservation -> {
                 Map<String, Object> map = new HashMap<>();
                 map.put("id", reservation.getId());
@@ -657,7 +584,11 @@ public class ReservationController {
                         .setScale(3, RoundingMode.HALF_UP)
                         .doubleValue();
                 map.put("prix", prixArrondi);
-                map.put("status", reservation.getStatus()); // tu peux aussi afficher le status ici si utile
+                map.put("status", reservation.getStatus());
+                Optional<PaymentEntity> paymentOpt = paymentRepository.findTopByReservationIdOrderByCreatedAtDesc(reservation.getId());
+
+                String paymentStatus = paymentOpt.map(p -> p.getStatus().name()).orElse("NON_PAYE");
+                map.put("paymentStatus", paymentStatus);
 
                 return map;
             })
@@ -665,6 +596,8 @@ public class ReservationController {
 
         return ResponseEntity.ok(response);
     }
+
+
     @PreAuthorize("hasRole('USER')")
     @PutMapping("/client/{reservationId}/modifier")
     public ResponseEntity<?> modifierReservationClient(
@@ -728,6 +661,183 @@ public class ReservationController {
 
         return ResponseEntity.ok(response);
     }
+    @PreAuthorize("hasRole('TECHNICIEN')")
+    @PutMapping("/{reservationId}/marquer-payee")
+    public ResponseEntity<?> marquerReservationPayee(
+            @PathVariable Long reservationId,
+            Authentication authentication) {
+        
+        try {
+            // 1. Vérification de la réservation
+            ReservationEntity reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Réservation non trouvée"));
 
+            // 2. Vérification des autorisations
+            String currentTechnicienEmail = authentication.getName();
+            if (reservation.getTechnicienId() == null || 
+                !technicienEmploiRepository.findById(reservation.getTechnicienId())
+                    .map(TechnicienEmploi::getEmail)
+                    .filter(currentTechnicienEmail::equals)
+                    .isPresent()) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Non autorisé");
+            }
+
+            // 3. Trouver ou créer le paiement avec statut PAYE explicite
+            PaymentEntity payment = paymentRepository.findByReservationId(reservationId)
+                .orElseGet(() -> {
+                    PaymentEntity newPayment = new PaymentEntity();
+                    newPayment.setReservation(reservation);
+                    newPayment.setAmount(reservation.getPrix());
+                    newPayment.setStatus(PaymentStatus.PAYE); // Force PAYE dès la création
+                    return newPayment;
+                });
+
+            // 4. Forcer le statut PAYE (même si existant)
+            payment.setStatus(PaymentStatus.PAYE);
+            payment.setDeveloperTrackingId("MANUEL_" + currentTechnicienEmail + "_" + LocalDateTime.now());
+            
+            // 5. Sauvegarde
+            PaymentEntity savedPayment = paymentRepository.save(payment);
+
+            // 6. Mise à jour réservation si nécessaire
+            if (reservation.getStatus() == ReservationStatus.EN_ATTENTE) {
+                reservation.setStatus(ReservationStatus.EN_COURS);
+                reservationRepository.save(reservation);
+            }
+            String technicienName = currentTechnicienEmail;
+            Optional<TechnicienEmploi> techOpt = technicienEmploiRepository.findById(reservation.getTechnicienId());
+            if (techOpt.isPresent()) {
+                TechnicienEmploi tech = techOpt.get();
+                technicienName = tech.getEmail();
+            }
+            
+            // Message de notification pour les administrateurs avec mention d'affectation au technicien
+            String adminMessage = String.format(
+                    "La Réservation: %d du Service: %s Prévu le: %s a été marquée comme payée par le  technicien %s.",
+                    reservation.getId(),
+                    reservation.getTitreService(),
+                    reservation.getDateReservation().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")),
+                    technicienName
+            );
+            notificationService.sendNotificationToAdmins(adminMessage);
+
+            return ResponseEntity.ok(Map.of(
+                "message", "Réservation marquée comme payée avec succès",
+                "reservationId", reservationId,
+                "paymentStatus", savedPayment.getStatus().toString(),
+                "paymentId", savedPayment.getId()
+            ));
+
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR,
+                "Erreur lors de la mise à jour du paiement: " + e.getMessage());
+        }
+    } 
+
+
+    @GetMapping()
+    public List<Map<String, Object>> getAllReservations() {
+        List<ReservationEntity> reservations = reservationService.getAllReservations();
+        List<Map<String, Object>> reservationsList = new ArrayList<>();
+        reservations.sort((r1, r2) -> Long.compare(r2.getId(), r1.getId()));
+
+        DateTimeFormatter formatter = DateTimeFormatter.ISO_DATE_TIME; // Format ISO 8601
+
+        for (ReservationEntity reservation : reservations) {
+            Map<String, Object> reservationDetails = new HashMap<>();
+
+            reservationDetails.put("id", reservation.getId());
+            reservationDetails.put("titreService", reservation.getTitreService());
+            reservationDetails.put("prix", reservation.getPrix());
+            reservationDetails.put("localisation", reservation.getLocalisation());
+            reservationDetails.put("latitude", reservation.getLatitude());
+            reservationDetails.put("longitude", reservation.getLongitude());
+            reservationDetails.put("email", reservation.getEmail());
+            reservationDetails.put("phone", reservation.getPhone());
+            reservationDetails.put("duree", reservation.getDuree());
+            reservationDetails.put("modePaiement", reservation.getModePaiement().name());
+            reservationDetails.put("status", reservation.getStatus().name());
+
+            // Dates au format ISO
+            reservationDetails.put("dateReservation", reservation.getDateReservation().format(formatter));
+            reservationDetails.put("dateCreation", reservation.getDateCreation().format(formatter));
+
+            // Nom du client si présent
+            if (reservation.getUser() != null && reservation.getUser().getUsername() != null) {
+                reservationDetails.put("nomClient", reservation.getUser().getUsernameFieldDirectly());
+            }
+
+            // Informations technicien si présent
+            Long technicienId = reservation.getTechnicienId();
+            if (technicienId != null) {
+                technicienEmploiRepository.findById(technicienId).ifPresent(technicien -> {
+                    if (technicien.getUsername() != null) {
+                        reservationDetails.put("usernameTechnicien", technicien.getUsername());
+                    }
+                    if (technicien.getEmail() != null) {
+                        reservationDetails.put("emailTechnicien", technicien.getEmail());
+                    }
+                });
+            }
+
+            // ✅ Dernier statut de paiement (le plus récent)
+            Optional<PaymentEntity> paymentOpt = paymentRepository.findTopByReservationIdOrderByCreatedAtDesc(reservation.getId());
+
+            String paymentStatus = paymentOpt.map(p -> p.getStatus().name()).orElse("NON_PAYE");
+            reservationDetails.put("paymentStatus", paymentStatus);
+
+            reservationsList.add(reservationDetails);
+        }
+
+        return reservationsList;
+    }
+
+    @GetMapping("/technicien/{emailTechnicien}")
+    public List<Map<String, Object>> getReservationsByTechnicien(@PathVariable String emailTechnicien) {
+        Optional<TechnicienEmploi> technicienOpt = technicienEmploiRepository.findByEmail(emailTechnicien);
+
+        if (technicienOpt.isEmpty()) {
+            return Collections.emptyList(); 
+        }
+
+        TechnicienEmploi technicien = technicienOpt.get();
+        List<ReservationEntity> reservations = reservationRepository.findByTechnicienId(technicien.getId());
+
+        // Trier les réservations par id dans l'ordre décroissant
+        reservations.sort((r1, r2) -> Long.compare(r2.getId(), r1.getId()));
+
+        List<Map<String, Object>> reservationsList = new ArrayList<>();
+
+        for (ReservationEntity reservation : reservations) {
+            Map<String, Object> reservationDetails = new HashMap<>();
+
+            reservationDetails.put("id", reservation.getId());
+            reservationDetails.put("titreService", reservation.getTitreService());
+            reservationDetails.put("prix", reservation.getPrix());
+            reservationDetails.put("localisation", reservation.getLocalisation());
+            reservationDetails.put("latitude", reservation.getLatitude());
+            reservationDetails.put("longitude", reservation.getLongitude());
+            reservationDetails.put("dateReservation", reservation.getDateReservation());
+            reservationDetails.put("dateCreation", reservation.getDateCreation());
+            reservationDetails.put("email", reservation.getEmail());
+            if (reservation.getUser() != null && reservation.getUser().getUsername() != null) {
+                reservationDetails.put("nomClient", reservation.getUser().getUsernameFieldDirectly());
+            }
+            reservationDetails.put("phone", reservation.getPhone());
+            reservationDetails.put("duree", reservation.getDuree());
+            reservationDetails.put("modePaiement", reservation.getModePaiement());
+            reservationDetails.put("status", reservation.getStatus());
+            // ✅ Dernier statut de paiement (le plus récent)
+            Optional<PaymentEntity> paymentOpt = paymentRepository.findTopByReservationIdOrderByCreatedAtDesc(reservation.getId());
+
+            String paymentStatus = paymentOpt.map(p -> p.getStatus().name()).orElse("NON_PAYE");
+            reservationDetails.put("paymentStatus", paymentStatus);
+            
+
+            reservationsList.add(reservationDetails);
+        }
+
+        return reservationsList;
+    }
 
 }

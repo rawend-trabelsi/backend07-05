@@ -3,12 +3,14 @@ package com.rawend.demo.entity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
-
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "payments")
+@Table(name = "payments", 
+       uniqueConstraints = @UniqueConstraint(
+           name = "uk_payment_reservation", 
+           columnNames = {"reservation_id"}))
 @Getter
 @Setter
 public class PaymentEntity {
@@ -35,12 +37,14 @@ public class PaymentEntity {
     private LocalDateTime createdAt;
 
     @OneToOne
-    @JoinColumn(name = "reservation_id", unique = true) // 🔒 unicité garantie ici
+    @JoinColumn(name = "reservation_id")
     private ReservationEntity reservation;
 
     @PrePersist
     protected void onCreate() {
         this.createdAt = LocalDateTime.now();
-        this.status = PaymentStatus.NON_PAYE;
+        if (this.status == null) {
+            this.status = PaymentStatus.NON_PAYE;
+        }
     }
 }

@@ -7,24 +7,35 @@ import com.rawend.demo.entity.JourRepos;
 import com.rawend.demo.entity.Role;
 import com.rawend.demo.Repository.UserRepository;
 import com.rawend.demo.dto.EmploiRequest;
+import com.rawend.demo.dto.LocationTrackingRequest;
+import com.rawend.demo.dto.LocationUpdateRequest;
 import com.rawend.demo.Repository.TechnicienEmploiRepository;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class EmploiService {
 
     private final UserRepository userRepository;
     private final TechnicienEmploiRepository technicienEmploiRepository;
-
-    public EmploiService(UserRepository userRepository, TechnicienEmploiRepository technicienEmploiRepository) {
+    private final SimpMessagingTemplate messagingTemplate;
+    private final Map<String, ScheduledExecutorService> trackingSessions = new ConcurrentHashMap<>();
+    public EmploiService(UserRepository userRepository, TechnicienEmploiRepository technicienEmploiRepository,SimpMessagingTemplate messagingTemplate) {
         this.userRepository = userRepository;
         this.technicienEmploiRepository = technicienEmploiRepository;
+		this.messagingTemplate = messagingTemplate;
     }
     public void supprimerEmploiTechnicien(Long emploiId) {
         TechnicienEmploi emploi = technicienEmploiRepository.findById(emploiId)
@@ -147,6 +158,108 @@ public class EmploiService {
         return technicienMap;
     }
 
+    public void enableLocationTracking(LocationTrackingRequest request) {
+        TechnicienEmploi emploi = technicienEmploiRepository.findByUserEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Technicien non trouvé"));
+        
+        emploi.setLocationTrackingEnabled(request.getEnable());
+        technicienEmploiRepository.save(emploi);
+        
+        if (request.getEnable()) {
+            startPeriodicLocationUpdate(request.getEmail());
+        } else {
+            stopPeriodicLocationUpdate(request.getEmail());
+        }
+    }
 
-    
+    private void startPeriodicLocationUpdate(String email) {
+        stopPeriodicLocationUpdate(email);
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+        trackingSessions.put(email, scheduler);
+
+        scheduler.scheduleAtFixedRate(() -> {
+            try {
+                TechnicienEmploi emploi = technicienEmploiRepository.findByUserEmail(email)
+                        .orElseThrow(() -> new RuntimeException("Technicien non trouvé"));
+
+                Map<String, Object> location = new HashMap<>();
+                location.put("email", email);
+                location.put("latitude", emploi.getLatitude());
+                location.put("longitude", emploi.getLongitude());
+                location.put("timestamp", LocalDateTime.now().toString());
+
+                messagingTemplate.convertAndSend("/topic/locations/" + email, location);
+                messagingTemplate.convertAndSend("/topic/locations/all", location);
+                
+            } catch (Exception e) {
+                // Envoyer l'erreur via WebSocket au lieu de logger
+                Map<String, String> error = new HashMap<>();
+                error.put("error", "Erreur de mise à jour pour " + email);
+                error.put("message", e.getMessage());
+                messagingTemplate.convertAndSend("/topic/errors/" + email, error);
+            }
+        }, 0, 10, TimeUnit.SECONDS);
+    }
+
+    private void stopPeriodicLocationUpdate(String email) {
+        ScheduledExecutorService scheduler = trackingSessions.remove(email);
+        if (scheduler != null) {
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Transactional
+    public void updateTechnicienLocation(LocationUpdateRequest request) {
+        TechnicienEmploi emploi = technicienEmploiRepository.findByUserEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Technicien non trouvé"));
+        
+        // Supprimer la vérification du changement pour tester
+        emploi.setLatitude(request.getLatitude());
+        emploi.setLongitude(request.getLongitude());
+        emploi.setLocationName(request.getLocationName());
+        emploi.setLastLocationUpdate(LocalDateTime.now());
+        
+        technicienEmploiRepository.saveAndFlush(emploi); // Force l'écriture
+        
+        // Debug
+        System.out.println("DEBUG - Position mise à jour : " + 
+            technicienEmploiRepository.findById(emploi.getId()));
+        
+        // Notifier
+        messagingTemplate.convertAndSend("/topic/locations/" + request.getEmail(), 
+            createLocationMap(emploi));
+    }
+    private boolean hasPositionChanged(TechnicienEmploi emploi, double newLat, double newLon) {
+        if (emploi.getLatitude() == null || emploi.getLongitude() == null) return true;
+        
+        // Seuil de changement (environ 50 mètres)
+        return distance(emploi.getLatitude(), emploi.getLongitude(), newLat, newLon) > 0.0005;
+    }
+
+    private double distance(double lat1, double lon1, double lat2, double lon2) {
+        // Formule haversine simplifiée pour les petites distances
+        double dLat = Math.toRadians(lat2 - lat1);
+        double dLon = Math.toRadians(lon2 - lon1);
+        return Math.sqrt(dLat * dLat + dLon * dLon);
+    }
+
+    private Map<String, Object> createLocationMap(TechnicienEmploi emploi) {
+        Map<String, Object> map = new HashMap<>();
+        map.put("email", emploi.getEmail());
+        map.put("username", emploi.getUsername());
+        map.put("latitude", emploi.getLatitude());
+        map.put("longitude", emploi.getLongitude());
+        map.put("locationName", emploi.getLocationName());
+        map.put("timestamp", LocalDateTime.now().toString());
+        return map;
+    }
+    public List<Map<String, Object>> getAllTechniciensLocations() {
+        return technicienEmploiRepository.findByLocationTrackingEnabledTrue()
+                .stream()
+                .map(this::createLocationMap)
+                .collect(Collectors.toList());
+    }
 }
+    
+

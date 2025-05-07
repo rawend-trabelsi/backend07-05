@@ -3,6 +3,8 @@ package com.rawend.demo.Repository;
 
 import com.rawend.demo.entity.TechnicienEmploi;
 import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
 import java.util.Optional;
 
 public interface TechnicienEmploiRepository extends JpaRepository<TechnicienEmploi, Long> {
@@ -11,6 +13,6 @@ public interface TechnicienEmploiRepository extends JpaRepository<TechnicienEmpl
     Optional<TechnicienEmploi> findByEmail(String email);
     Optional<TechnicienEmploi> findByUserEmail(String email);
 
-
+    List<TechnicienEmploi> findByLocationTrackingEnabledTrue();
     
 }

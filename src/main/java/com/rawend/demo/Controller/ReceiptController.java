@@ -109,7 +109,10 @@ public class ReceiptController {
 
         // Payment info
         Paragraph paymentInfo = new Paragraph("PAIEMENT:", new Font(Font.HELVETICA, 12, Font.BOLD));
-        paymentInfo.add("\nID Paiement: " + payment.getFlouciPaymentId());
+     
+        if (payment.getFlouciPaymentId() != null) {
+            paymentInfo.add("\nID Paiement: " + payment.getFlouciPaymentId());
+        }
         paymentInfo.add("\nDate Paiement: " + payment.getCreatedAt().format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")));
         paymentInfo.add("\nMontant: " + String.format("%.2f DT", reservation.getPrix()));
         paymentInfo.add("\nMode de paiement: " + reservation.getModePaiement());
